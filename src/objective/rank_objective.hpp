@@ -326,16 +326,18 @@ class RankXENDCG : public RankingObjective {
 
     // Prepare a vector of gammas, a parameter of the loss.
     std::vector<double> gammas(cnt);
-    for (data_size_t i = 0; i < cnt; ++i) {
-      gammas[i] = rand_.NextFloat();
-    }
-
-    // Skip query if sum of labels is 0.
+    std::vector<double> phis(cnt);
     double sum_labels = 0;
     for (data_size_t i = 0; i < cnt; ++i) {
-      sum_labels += static_cast<double>(phi(label[i], gammas[i]));
+      gammas[i] = rand_.NextFloat();
+      phis[i] = phi(label[i], gammas[i]);
+      sum_labels += phis[i];
     }
     if (std::fabs(sum_labels) < kEpsilon) {
+      for (data_size_t i = 0; i < cnt; ++i) {
+        lambdas[i] = 0.0f;
+        hessians[i] = 1.0f;
+      }
       return;
     }
 
@@ -343,7 +345,7 @@ class RankXENDCG : public RankingObjective {
     // First order terms.
     std::vector<double> L1s(cnt);
     for (data_size_t i = 0; i < cnt; ++i) {
-      L1s[i] = -phi(label[i], gammas[i]) / sum_labels + rho[i];
+      L1s[i] = -phis[i] / sum_labels + rho[i];
     }
     // Second-order terms.
     std::vector<double> L2s(cnt);
