@@ -268,7 +268,6 @@ const std::unordered_set<std::string>& Config::parameter_set() {
   "fair_c",
   "poisson_max_delta_step",
   "tweedie_variance_power",
-  "pair_sample",
   "lambdarank_truncation_level",
   "lambdamart_norm",
   "label_gain",
@@ -544,8 +543,6 @@ void Config::GetMembersFromString(const std::unordered_map<std::string, std::str
   CHECK(tweedie_variance_power >=1.0);
   CHECK(tweedie_variance_power <2.0);
 
-  GetInt(params, "pair_sample", &pair_sample);
-
   GetInt(params, "lambdarank_truncation_level", &lambdarank_truncation_level);
   CHECK(lambdarank_truncation_level >0);
 
@@ -689,7 +686,6 @@ std::string Config::SaveMembersToString() const {
   str_buf << "[fair_c: " << fair_c << "]\n";
   str_buf << "[poisson_max_delta_step: " << poisson_max_delta_step << "]\n";
   str_buf << "[tweedie_variance_power: " << tweedie_variance_power << "]\n";
-  str_buf << "[pair_sample: " << pair_sample << "]\n";
   str_buf << "[lambdarank_truncation_level: " << lambdarank_truncation_level << "]\n";
   str_buf << "[lambdamart_norm: " << lambdamart_norm << "]\n";
   str_buf << "[label_gain: " << Common::Join(label_gain, ",") << "]\n";

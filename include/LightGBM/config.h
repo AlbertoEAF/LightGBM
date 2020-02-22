@@ -751,14 +751,6 @@ struct Config {
   // desc = set this closer to ``1`` to shift towards a **Poisson** distribution
   double tweedie_variance_power = 1.5;
 
-
-  // desc = used only in ranking (``lambdarank`` and ``rank_xendcg``) applications
-  // decs = randomly sample ``pair_sample`` for one data, totally `k * pair_sample` pairs for one query, where ``k`` is the number of data in that query
-  // desc = ``<= 0`` means using all pairs (``k * (k-1)``)
-  // desc = use small ``pair_sample`` could speed up the ranking obectives, but may hurt the accuracy.
-  int pair_sample = 5;
-
-
   // check = >0
   // desc = used only in ``lambdarank`` application
   // desc = used for truncating the max_ndcg, refer to "truncation level" in the Sec.3 of `LambdaMART paper <https://www.microsoft.com/en-us/research/wp-content/uploads/2016/02/MSR-TR-2010-82.pdf>`__ .

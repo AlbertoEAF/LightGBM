@@ -866,14 +866,6 @@ Objective Parameters
 
    -  set this closer to ``1`` to shift towards a **Poisson** distribution
 
--  ``pair_sample`` :raw-html:`<a id="pair_sample" title="Permalink to this parameter" href="#pair_sample">&#x1F517;&#xFE0E;</a>`, default = ``5``, type = int
-
-   -  used only in ranking (``lambdarank`` and ``rank_xendcg``) applications
-
-   -  ``<= 0`` means using all pairs (``k * (k-1)``)
-
-   -  use small ``pair_sample`` could speed up the ranking obectives, but may hurt the accuracy.
-
 -  ``lambdarank_truncation_level`` :raw-html:`<a id="lambdarank_truncation_level" title="Permalink to this parameter" href="#lambdarank_truncation_level">&#x1F517;&#xFE0E;</a>`, default = ``20``, type = int, constraints: ``lambdarank_truncation_level > 0``
 
    -  used only in ``lambdarank`` application
