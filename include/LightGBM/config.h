@@ -752,7 +752,6 @@ struct Config {
   double tweedie_variance_power = 1.5;
 
 
-  // check = >0
   // desc = used only in ranking (``lambdarank`` and ``rank_xendcg``) applications
   // decs = randomly sample ``pair_sample`` for one data, totally `k * pair_sample` pairs for one query, where ``k`` is the number of data in that query
   // desc = ``<= 0`` means using all pairs (``k * (k-1)``)

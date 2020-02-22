@@ -866,7 +866,7 @@ Objective Parameters
 
    -  set this closer to ``1`` to shift towards a **Poisson** distribution
 
--  ``pair_sample`` :raw-html:`<a id="pair_sample" title="Permalink to this parameter" href="#pair_sample">&#x1F517;&#xFE0E;</a>`, default = ``5``, type = int, constraints: ``pair_sample > 0``
+-  ``pair_sample`` :raw-html:`<a id="pair_sample" title="Permalink to this parameter" href="#pair_sample">&#x1F517;&#xFE0E;</a>`, default = ``5``, type = int
 
    -  used only in ranking (``lambdarank`` and ``rank_xendcg``) applications
 

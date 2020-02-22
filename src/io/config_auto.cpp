@@ -545,7 +545,6 @@ void Config::GetMembersFromString(const std::unordered_map<std::string, std::str
   CHECK(tweedie_variance_power <2.0);
 
   GetInt(params, "pair_sample", &pair_sample);
-  CHECK(pair_sample >0);
 
   GetInt(params, "lambdarank_truncation_level", &lambdarank_truncation_level);
   CHECK(lambdarank_truncation_level >0);
