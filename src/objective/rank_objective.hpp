@@ -128,24 +128,6 @@ class LambdarankNDCG : public RankingObjective {
     }
     // construct sigmoid table to speed up sigmoid transform
     ConstructSigmoidTable();
-    if (sample_cnt_ > 0) {
-      valid_pair_cnt_.resize(num_data_);
-      data_size_t k = 0;
-      for (int q = 0; q < num_queries_; ++q) {
-        auto cur_label = label_ + query_boundaries_[q];
-        auto cnt = query_boundaries_[q + 1] - query_boundaries_[q];
-        for (int i = 0; i < cnt; ++i) {
-          int cur_cnt = 0;
-          for (int j = 0; j < cnt; ++j) {
-            if (i == j || cur_label[i] <= cur_label[j]) {
-              continue;
-            }
-            ++cur_cnt;
-          }
-          valid_pair_cnt_[k++] = cur_cnt;
-        }
-      }
-    }
   }
 
 
@@ -283,8 +265,6 @@ class LambdarankNDCG : public RankingObjective {
   std::vector<double> label_gain_;
   /*! \brief Cache inverse max DCG, speed up calculation */
   std::vector<double> inverse_max_dcgs_;
-
-  std::vector<int16_t> valid_pair_cnt_;
   /*! \brief Simgoid param */
   double sigmoid_;
   /*! \brief Normalize the lambdas or not */
@@ -321,17 +301,17 @@ class RankXENDCG : public RankingObjective {
                                       const double* score, score_t* lambdas,
                                       score_t* hessians) const override {
     // Turn scores into a probability distribution using Softmax.
-    std::vector<double> rho(cnt);
+    std::vector<double> rho(cnt, 0.0);
     Common::Softmax(score, rho.data(), cnt);
 
     // Prepare a vector of gammas, a parameter of the loss.
     std::vector<double> gammas(cnt);
-    std::vector<double> phis(cnt);
+    std::vector<double> L1s(cnt);
     double sum_labels = 0;
     for (data_size_t i = 0; i < cnt; ++i) {
       gammas[i] = rand_.NextFloat();
-      phis[i] = phi(label[i], gammas[i]);
-      sum_labels += phis[i];
+      L1s[i] = phi(label[i], gammas[i]);
+      sum_labels += L1s[i];
     }
     if (std::fabs(sum_labels) < kEpsilon) {
       for (data_size_t i = 0; i < cnt; ++i) {
@@ -343,12 +323,11 @@ class RankXENDCG : public RankingObjective {
 
     // Approximate gradients and inverse Hessian.
     // First order terms.
-    std::vector<double> L1s(cnt);
     for (data_size_t i = 0; i < cnt; ++i) {
-      L1s[i] = -phis[i] / sum_labels + rho[i];
+      L1s[i] = -L1s[i] / sum_labels + rho[i];
     }
     // Second-order terms.
-    std::vector<double> L2s(cnt);
+    std::vector<double> L2s(cnt, 0.0);
     for (data_size_t i = 0; i < cnt; ++i) {
       for (data_size_t j = 0; j < cnt; ++j) {
         if (i == j) continue;
@@ -356,18 +335,18 @@ class RankXENDCG : public RankingObjective {
       }
     }
     // Third-order terms.
-    std::vector<double> L3s(cnt);
+    std::vector<double> L3s(cnt, 0.0);
     for (data_size_t i = 0; i < cnt; ++i) {
       for (data_size_t j = 0; j < cnt; ++j) {
         if (i == j) continue;
-        L3s[i] += rho[j] * L2s[j] / (1 - rho[j]);
+        L3s[i] += L2s[j] / (1 - rho[j]);
       }
     }
 
     // Finally, prepare lambdas and hessians.
     for (data_size_t i = 0; i < cnt; ++i) {
       lambdas[i] =
-          static_cast<score_t>(L1s[i] + rho[i] * L2s[i] + rho[i] * L3s[i]);
+          static_cast<score_t>(L1s[i] + rho[i] * L2s[i] + rho[i] * rho[i] * L3s[i]);
       hessians[i] = static_cast<score_t>(rho[i] * (1.0 - rho[i]));
     }
     // if need weights
