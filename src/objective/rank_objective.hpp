@@ -407,6 +407,7 @@ class LambdarankNDCG : public RankingObjective {
   }
 
   inline double GetSigmoid(double score) const {
+    return 1.0f / (1.0f + std::exp(score * sigmoid_));
     if (score <= min_sigmoid_input_) {
       // too small, use lower bound
       return sigmoid_table_[0];
