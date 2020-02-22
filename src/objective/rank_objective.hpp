@@ -323,24 +323,24 @@ class RankXENDCG : public RankingObjective {
 
     // Approximate gradients and inverse Hessian.
     // First order terms.
+    double sum_l1 = 0.0f;
     for (data_size_t i = 0; i < cnt; ++i) {
       L1s[i] = -L1s[i] / sum_labels + rho[i];
+      sum_l1 += L1s[i];
     }
-    // Second-order terms.
+
+    // Second order terms.
     std::vector<double> L2s(cnt, 0.0);
+    double sum_l2 = 0.0;
     for (data_size_t i = 0; i < cnt; ++i) {
-      for (data_size_t j = 0; j < cnt; ++j) {
-        if (i == j) continue;
-        L2s[i] += L1s[j] / (1 - rho[j]);
-      }
+      L2s[i] = (sum_l1 - L1s[i]) / (1 - rho[i]);
+      sum_l2 += L2s[i];
     }
+
     // Third-order terms.
     std::vector<double> L3s(cnt, 0.0);
     for (data_size_t i = 0; i < cnt; ++i) {
-      for (data_size_t j = 0; j < cnt; ++j) {
-        if (i == j) continue;
-        L3s[i] += L2s[j] / (1 - rho[j]);
-      }
+      L3s[i] = (sum_l2 - L2s[i]) / (1 - rho[i]);
     }
 
     // Finally, prepare lambdas and hessians.
