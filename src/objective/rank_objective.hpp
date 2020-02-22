@@ -88,6 +88,8 @@ class RankingObjective : public ObjectiveFunction {
 
   bool Sample(data_size_t offset, data_size_t cnt,
               std::vector<std::vector<int16_t>>* out) const {
+    Common::FunctionTimer fun_timer("RankingObjective::sample",
+                                    global_timer);
     if (sample_cnt_ <= 0 || cnt <= sample_cnt_) {
       return false;
     }
@@ -198,6 +200,7 @@ class LambdarankNDCG : public RankingObjective {
       const std::vector<std::vector<int16_t>>& sample_pair,
       const label_t* label, const double* score, score_t* lambdas,
       score_t* hessians) const {
+    Common::FunctionTimer fun_timer("LambdarankNDCG::GetGradientsForOneQueryInner", global_timer);
     // get max DCG on current query
     const double inverse_max_dcg = inverse_max_dcgs_[query_id];
     // initialize with zero
