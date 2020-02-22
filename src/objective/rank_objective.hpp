@@ -25,7 +25,12 @@ namespace LightGBM {
 class RankingObjective : public ObjectiveFunction {
  public:
   explicit RankingObjective(const Config& config)
-      : sample_cnt_(config.pair_sample), rand_(config.objective_seed) {}
+      : sample_cnt_(config.pair_sample), rand_(config.objective_seed) {
+    label_gain_ = config.label_gain;
+    // initialize DCG calculator
+    DCGCalculator::DefaultLabelGain(&label_gain_);
+    DCGCalculator::Init(label_gain_);
+  }
 
   explicit RankingObjective(const std::vector<std::string>&) : rand_() {}
 
@@ -48,8 +53,7 @@ class RankingObjective : public ObjectiveFunction {
 
   void GetGradients(const double* score, score_t* gradients,
                     score_t* hessians) const override {
-    std::vector<std::vector<int16_t>> sampled_pair;
-#pragma omp parallel for schedule(guided) firstprivate(sampled_pair)
+#pragma omp parallel for schedule(guided)
     for (data_size_t i = 0; i < num_queries_; ++i) {
       const data_size_t start = query_boundaries_[i];
       const data_size_t cnt = query_boundaries_[i + 1] - query_boundaries_[i];
@@ -85,6 +89,8 @@ class RankingObjective : public ObjectiveFunction {
   const label_t* weights_;
   /*! \brief Query boundries */
   const data_size_t* query_boundaries_;
+  /*! \brief Gains for labels */
+  std::vector<double> label_gain_;
   mutable Random rand_;
 };
 /*!
@@ -95,10 +101,6 @@ class LambdarankNDCG : public RankingObjective {
   explicit LambdarankNDCG(const Config& config) : RankingObjective(config) {
     sigmoid_ = static_cast<double>(config.sigmoid);
     norm_ = config.lambdamart_norm;
-    label_gain_ = config.label_gain;
-    // initialize DCG calculator
-    DCGCalculator::DefaultLabelGain(&label_gain_);
-    DCGCalculator::Init(label_gain_);
     // will optimize NDCG@truncation_level_
     truncation_level_ = config.lambdarank_truncation_level;
     sigmoid_table_.clear();
@@ -261,8 +263,7 @@ class LambdarankNDCG : public RankingObjective {
   const char* GetName() const override { return "lambdarank"; }
 
  private:
-  /*! \brief Gains for labels */
-  std::vector<double> label_gain_;
+
   /*! \brief Cache inverse max DCG, speed up calculation */
   std::vector<double> inverse_max_dcgs_;
   /*! \brief Simgoid param */
@@ -296,7 +297,7 @@ class RankXENDCG : public RankingObjective {
 
   ~RankXENDCG() {}
 
-  inline void GetGradientsForOneQuery(data_size_t, data_size_t offset,
+    inline void GetGradientsForOneQuery(data_size_t, data_size_t offset,
                                       data_size_t cnt, const label_t* label,
                                       const double* score, score_t* lambdas,
                                       score_t* hessians) const override {
@@ -332,21 +333,25 @@ class RankXENDCG : public RankingObjective {
     // Second order terms.
     std::vector<double> L2s(cnt, 0.0);
     double sum_l2 = 0.0;
-    for (data_size_t i = 0; i < cnt; ++i) {
-      L2s[i] = (sum_l1 - L1s[i]) / (1 - rho[i]);
-      sum_l2 += L2s[i];
+    if (cnt > 1) {
+      for (data_size_t i = 0; i < cnt; ++i) {
+        L2s[i] = (sum_l1 - L1s[i]) / (1 - rho[i]);
+        sum_l2 += L2s[i];
+      }
     }
 
     // Third-order terms.
     std::vector<double> L3s(cnt, 0.0);
-    for (data_size_t i = 0; i < cnt; ++i) {
-      L3s[i] = (sum_l2 - L2s[i]) / (1 - rho[i]);
+    if (cnt > 1) {
+      for (data_size_t i = 0; i < cnt; ++i) {
+        L3s[i] = (sum_l2 - L2s[i]) / (1 - rho[i]);
+      }
     }
 
     // Finally, prepare lambdas and hessians.
     for (data_size_t i = 0; i < cnt; ++i) {
-      lambdas[i] =
-          static_cast<score_t>(L1s[i] + rho[i] * L2s[i] + rho[i] * rho[i] * L3s[i]);
+      lambdas[i] = static_cast<score_t>(L1s[i] + rho[i] * L2s[i] +
+                                        rho[i] * rho[i] * L3s[i]);
       hessians[i] = static_cast<score_t>(rho[i] * (1.0 - rho[i]));
     }
     // if need weights
