@@ -25,7 +25,7 @@ namespace LightGBM {
 class RankingObjective : public ObjectiveFunction {
  public:
   explicit RankingObjective(const Config& config)
-      : rand_(config.objective_seed), sample_cnt_(config.pair_sample) {}
+      : sample_cnt_(config.pair_sample), rand_(config.objective_seed) {}
 
   explicit RankingObjective(const std::vector<std::string>&) : rand_() {}
 
@@ -44,27 +44,6 @@ class RankingObjective : public ObjectiveFunction {
       Log::Fatal("Ranking tasks require query information");
     }
     num_queries_ = metadata.num_queries();
-    if (sample_cnt_ > 0) {
-      sample_candidates_boundaries_.clear();
-      sample_candidates_boundaries_.reserve(num_data_ + 1);
-      sample_candidates_boundaries_.push_back(0);
-      for (int q = 0; q < num_queries_; ++q) {
-        auto cur_label = label_ + query_boundaries_[q];
-        auto cnt = query_boundaries_[q + 1] - query_boundaries_[q];
-        for (int i = 0; i < cnt; ++i) {
-          int cur_cnt = 0;
-          for (int j = 0; j < cnt; ++j) {
-            if (i == j || cur_label[i] <= cur_label[j]) {
-              continue;
-            }
-            sample_candidates_.push_back(j);
-            ++cur_cnt;
-          }
-          sample_candidates_boundaries_.push_back(
-              sample_candidates_boundaries_.back() + cur_cnt);
-        }
-      }
-    }
   }
 
   void GetGradients(const double* score, score_t* gradients,
@@ -106,9 +85,6 @@ class RankingObjective : public ObjectiveFunction {
   const label_t* weights_;
   /*! \brief Query boundries */
   const data_size_t* query_boundaries_;
-
-  std::vector<int16_t> sample_candidates_;
-  std::vector<data_size_t> sample_candidates_boundaries_;
   mutable Random rand_;
 };
 /*!
@@ -152,6 +128,23 @@ class LambdarankNDCG : public RankingObjective {
     }
     // construct sigmoid table to speed up sigmoid transform
     ConstructSigmoidTable();
+    if (sample_cnt_ > 0) {
+      data_size_t k = 0;
+      for (int q = 0; q < num_queries_; ++q) {
+        auto cur_label = label_ + query_boundaries_[q];
+        auto cnt = query_boundaries_[q + 1] - query_boundaries_[q];
+        for (int i = 0; i < cnt; ++i) {
+          int cur_cnt = 0;
+          for (int j = 0; j < cnt; ++j) {
+            if (i == j || cur_label[i] <= cur_label[j]) {
+              continue;
+            }
+            ++cur_cnt;
+          }
+          valid_pair_cnt_[k++] = cur_cnt;
+        }
+      }
+    }
   }
 
   template <bool IS_SAMPLE>
@@ -176,14 +169,6 @@ class LambdarankNDCG : public RankingObjective {
         sorted_idx.begin(), sorted_idx.end(),
         [score](data_size_t a, data_size_t b) { return score[a] > score[b]; });
     std::vector<int16_t> sorted_mapper;
-    std::vector<int16_t> samples;
-    if (IS_SAMPLE) {
-      sorted_mapper.resize(cnt, 0);
-      samples.resize(cnt, 0);
-      for (int i = 0; i < cnt; ++i) {
-        sorted_mapper[sorted_idx[i]] = i;
-      }
-    }
     // get best and worst score
     const double best_score = score[sorted_idx[0]];
     data_size_t worst_idx = cnt - 1;
@@ -205,51 +190,50 @@ class LambdarankNDCG : public RankingObjective {
       double high_sum_lambda = 0.0;
       double high_sum_hessian = 0.0;
       double factor = 1.0;
-      auto loop_cnt = cnt;
+      double prob = 1.0;
+      bool use_sample = IS_SAMPLE;
+      int rest_cnt = sample_cnt_;
+      int rest_total = cnt;
       if (IS_SAMPLE) {
-        auto start = sample_candidates_boundaries_[offset + high];
-        auto end = sample_candidates_boundaries_[offset + high + 1];
-        loop_cnt = end - start;
-        if (end - start <= sample_cnt_) {
-          loop_cnt = end - start;
-          for (data_size_t j = 0; j < loop_cnt; ++j) {
-            samples[j] = sample_candidates_[start + j];
-          }
+        int valid_cnt = valid_pair_cnt_[offset + high];
+        if (valid_cnt <= sample_cnt_) {
+          use_sample = false;
         } else {
-          auto neg_samples = rand_.Sample(loop_cnt, sample_cnt_);
-          for (data_size_t j = 0; j < sample_cnt_; ++j) {
-            samples[j] = sample_candidates_[start + neg_samples[j]];
-          }
-          loop_cnt = sample_cnt_;
+          factor = static_cast<double>(valid_cnt) / sample_cnt_;
+          rest_total = valid_cnt;
+          prob = 1.0 / factor;
         }
-        // recovery factor for sampled pair
-        factor = static_cast<double>(end - start) / loop_cnt;
       }
-      for (data_size_t j = 0; j < loop_cnt; ++j) {
-        auto cur_j = j;
-        if (IS_SAMPLE) {
-          cur_j = sorted_mapper[samples[j]];
+      for (data_size_t j = 0; j < cnt; ++j) {
+        if (i == j) {
+          continue;
         }
-        if (!IS_SAMPLE) {
-          // skip same data
-          if (i == cur_j) {
-            continue;
-          }
-        }
-        const data_size_t low = sorted_idx[cur_j];
+        const data_size_t low = sorted_idx[j];
         const int low_label = static_cast<int>(label[low]);
         const double low_score = score[low];
         // only consider pair with different label
-        if (!IS_SAMPLE) {
-          if (high_label <= low_label || low_score == kMinScore) {
-            continue;
+        if (high_label <= low_label || low_score == kMinScore) {
+          continue;
+        }
+        if (IS_SAMPLE) {
+          if (use_sample) {
+            if (rest_cnt <= 0) {
+              break;
+            }
+            bool sampled = rand_.NextFloat() < prob;
+            --rest_total;
+            if (!sampled) {
+              prob = static_cast<double>(rest_cnt) / rest_total;
+              continue;
+            }
+            --rest_cnt;
+            prob = static_cast<double>(rest_cnt) / rest_total;
           }
         }
-
         const double delta_score = high_score - low_score;
 
         const double low_label_gain = label_gain_[low_label];
-        const double low_discount = DCGCalculator::GetDiscount(cur_j);
+        const double low_discount = DCGCalculator::GetDiscount(j);
         // get dcg gap
         const double dcg_gap = high_label_gain - low_label_gain;
         // get discount of this pair
@@ -308,111 +292,14 @@ class LambdarankNDCG : public RankingObjective {
       GetGradientsForOneQueryInner<true>(query_id, offset, cnt, label, score,
                                          lambdas, hessians);
     }
-    //Common::FunctionTimer fun_timer(
-    //    "LambdarankNDCG::GetGradientsForOneQuery", global_timer);
-    //// get max DCG on current query
-    //const double inverse_max_dcg = inverse_max_dcgs_[query_id];
-    //// initialize with zero
-    //for (data_size_t i = 0; i < cnt; ++i) {
-    //  lambdas[i] = 0.0f;
-    //  hessians[i] = 0.0f;
-    //}
-    //// get sorted indices for scores
-    //std::vector<data_size_t> sorted_idx;
-    //for (data_size_t i = 0; i < cnt; ++i) {
-    //  sorted_idx.emplace_back(i);
-    //}
-    //std::stable_sort(
-    //    sorted_idx.begin(), sorted_idx.end(),
-    //    [score](data_size_t a, data_size_t b) { return score[a] > score[b]; });
-    //std::vector<int16_t> sorted_mapper;
-    //// get best and worst score
-    //const double best_score = score[sorted_idx[0]];
-    //data_size_t worst_idx = cnt - 1;
-    //if (worst_idx > 0 && score[sorted_idx[worst_idx]] == kMinScore) {
-    //  worst_idx -= 1;
-    //}
-    //const double worst_score = score[sorted_idx[worst_idx]];
-    //double sum_lambdas = 0.0;
-    //// start accmulate lambdas by pairs
-    //for (data_size_t i = 0; i < cnt; ++i) {
-    //  const data_size_t high = sorted_idx[i];
-    //  const int high_label = static_cast<int>(label[high]);
-    //  const double high_score = score[high];
-    //  if (high_score == kMinScore) {
-    //    continue;
-    //  }
-    //  const double high_label_gain = label_gain_[high_label];
-    //  const double high_discount = DCGCalculator::GetDiscount(i);
-    //  double high_sum_lambda = 0.0;
-    //  double high_sum_hessian = 0.0;
-    //  for (data_size_t j = 0; j < cnt; ++j) {
-    //    // skip same data
-    //    if (i == j) {
-    //      continue;
-    //    }
-    //    const data_size_t low = sorted_idx[j];
-    //    const int low_label = static_cast<int>(label[low]);
-    //    const double low_score = score[low];
-    //    // only consider pair with different label
-    //    if (high_label <= low_label || low_score == kMinScore) {
-    //      continue;
-    //    }
-
-    //    const double delta_score = high_score - low_score;
-
-    //    const double low_label_gain = label_gain_[low_label];
-    //    const double low_discount = DCGCalculator::GetDiscount(j);
-    //    // get dcg gap
-    //    const double dcg_gap = high_label_gain - low_label_gain;
-    //    // get discount of this pair
-    //    const double paired_discount = fabs(high_discount - low_discount);
-    //    // get delta NDCG
-    //    double delta_pair_NDCG = dcg_gap * paired_discount * inverse_max_dcg;
-    //    // regular the delta_pair_NDCG by score distance
-    //    if (norm_ && high_label != low_label && best_score != worst_score) {
-    //      delta_pair_NDCG /= (0.01f + fabs(delta_score));
-    //    }
-    //    // calculate lambda for this pair
-    //    double p_lambda = GetSigmoid(delta_score);
-    //    double p_hessian = p_lambda * (1.0f - p_lambda);
-    //    // update
-    //    p_lambda *= -sigmoid_ * delta_pair_NDCG;
-    //    p_hessian *= sigmoid_ * sigmoid_ * delta_pair_NDCG;
-    //    high_sum_lambda += p_lambda;
-    //    high_sum_hessian += p_hessian;
-    //    lambdas[low] -= static_cast<score_t>(p_lambda);
-    //    hessians[low] += static_cast<score_t>(p_hessian);
-    //    // lambda is negative, so use minus to accumulate
-    //    sum_lambdas -= 2 * p_lambda;
-    //  }
-    //  // update
-    //  lambdas[high] += static_cast<score_t>(high_sum_lambda);
-    //  hessians[high] += static_cast<score_t>(high_sum_hessian);
-    //}
-    //if (norm_ && sum_lambdas > 0) {
-    //  double norm_factor = std::log2(1 + sum_lambdas) / sum_lambdas;
-    //  for (data_size_t i = 0; i < cnt; ++i) {
-    //    lambdas[i] = static_cast<score_t>(lambdas[i] * norm_factor);
-    //    hessians[i] = static_cast<score_t>(hessians[i] * norm_factor);
-    //  }
-    //}
-    //// if need weights
-    //if (weights_ != nullptr) {
-    //  for (data_size_t i = 0; i < cnt; ++i) {
-    //    lambdas[i] = static_cast<score_t>(lambdas[i] * weights_[offset + i]);
-    //    hessians[i] = static_cast<score_t>(hessians[i] * weights_[offset + i]);
-    //  }
-    //}
   }
 
   inline double GetSigmoid(double score) const {
-    return 1.0f / (1.0f + std::exp(score * sigmoid_));
     if (score <= min_sigmoid_input_) {
       // too small, use lower bound
       return sigmoid_table_[0];
     } else if (score >= max_sigmoid_input_) {
-      // too big, use upper bound
+      // too large, use upper bound
       return sigmoid_table_[_sigmoid_bins - 1];
     } else {
       return sigmoid_table_[static_cast<size_t>((score - min_sigmoid_input_) *
@@ -442,6 +329,8 @@ class LambdarankNDCG : public RankingObjective {
   std::vector<double> label_gain_;
   /*! \brief Cache inverse max DCG, speed up calculation */
   std::vector<double> inverse_max_dcgs_;
+
+  std::vector<int16_t> valid_pair_cnt_;
   /*! \brief Simgoid param */
   double sigmoid_;
   /*! \brief Normalize the lambdas or not */
