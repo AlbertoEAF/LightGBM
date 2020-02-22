@@ -154,7 +154,7 @@ class LambdarankNDCG : public RankingObjective {
     ConstructSigmoidTable();
   }
 
-  template <bool sample>
+  template <bool IS_SAMPLE>
   inline void GetGradientsForOneQueryInner(
       data_size_t query_id, data_size_t offset, data_size_t cnt,
       const label_t* label, const double* score, score_t* lambdas,
@@ -177,7 +177,7 @@ class LambdarankNDCG : public RankingObjective {
         [score](data_size_t a, data_size_t b) { return score[a] > score[b]; });
     std::vector<int16_t> sorted_mapper;
     std::vector<int16_t> samples;
-    if (sample) {
+    if (IS_SAMPLE) {
       sorted_mapper.resize(cnt, 0);
       samples.resize(cnt, 0);
       for (int i = 0; i < cnt; ++i) {
@@ -206,7 +206,7 @@ class LambdarankNDCG : public RankingObjective {
       double high_sum_hessian = 0.0;
       double factor = 1.0;
       auto loop_cnt = cnt;
-      if (sample) {
+      if (IS_SAMPLE) {
         auto start = sample_candidates_boundaries_[offset + high];
         auto end = sample_candidates_boundaries_[offset + high + 1];
         loop_cnt = end - start;
@@ -216,9 +216,9 @@ class LambdarankNDCG : public RankingObjective {
             samples[j] = sample_candidates_[start + j];
           }
         } else {
-          auto sample = rand_.Sample(loop_cnt, sample_cnt_);
+          auto neg_samples = rand_.Sample(loop_cnt, sample_cnt_);
           for (data_size_t j = 0; j < sample_cnt_; ++j) {
-            samples[j] = sample_candidates_[start + sample[j]];
+            samples[j] = sample_candidates_[start + neg_samples[j]];
           }
           loop_cnt = sample_cnt_;
         }
@@ -227,10 +227,10 @@ class LambdarankNDCG : public RankingObjective {
       }
       for (data_size_t j = 0; j < loop_cnt; ++j) {
         auto cur_j = j;
-        if (sample) {
+        if (IS_SAMPLE) {
           cur_j = sorted_mapper[samples[j]];
         }
-        if (!sample) {
+        if (!IS_SAMPLE) {
           // skip same data
           if (i == cur_j) {
             continue;
@@ -240,8 +240,10 @@ class LambdarankNDCG : public RankingObjective {
         const int low_label = static_cast<int>(label[low]);
         const double low_score = score[low];
         // only consider pair with different label
-        if (high_label <= low_label || low_score == kMinScore) {
-          continue;
+        if (!IS_SAMPLE) {
+          if (high_label <= low_label || low_score == kMinScore) {
+            continue;
+          }
         }
 
         const double delta_score = high_score - low_score;
@@ -264,7 +266,7 @@ class LambdarankNDCG : public RankingObjective {
         // update
         p_lambda *= -sigmoid_ * delta_pair_NDCG;
         p_hessian *= sigmoid_ * sigmoid_ * delta_pair_NDCG;
-        if (sample) {
+        if (IS_SAMPLE) {
           p_lambda *= factor;
           p_hessian *= factor;
         }
