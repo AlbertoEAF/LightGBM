@@ -790,6 +790,10 @@ IO Parameters
 Objective Parameters
 --------------------
 
+-  ``objective_seed`` :raw-html:`<a id="objective_seed" title="Permalink to this parameter" href="#objective_seed">&#x1F517;&#xFE0E;</a>`, default = ``5``, type = int
+
+   -  random seed for objectives, if random process is needed
+
 -  ``num_class`` :raw-html:`<a id="num_class" title="Permalink to this parameter" href="#num_class">&#x1F517;&#xFE0E;</a>`, default = ``1``, type = int, aliases: ``num_classes``, constraints: ``num_class > 0``
 
    -  used only in ``multi-class`` classification application
@@ -862,11 +866,19 @@ Objective Parameters
 
    -  set this closer to ``1`` to shift towards a **Poisson** distribution
 
--  ``max_position`` :raw-html:`<a id="max_position" title="Permalink to this parameter" href="#max_position">&#x1F517;&#xFE0E;</a>`, default = ``20``, type = int, constraints: ``max_position > 0``
+-  ``pair_sample`` :raw-html:`<a id="pair_sample" title="Permalink to this parameter" href="#pair_sample">&#x1F517;&#xFE0E;</a>`, default = ``5``, type = int, constraints: ``pair_sample > 0``
+
+   -  used only in ranking (``lambdarank`` and ``rank_xendcg``) applications
+
+   -  ``<= 0`` means using all pairs (``k * (k-1)``)
+
+   -  use small ``pair_sample`` could speed up the ranking obectives, but may hurt the accuracy.
+
+-  ``lambdarank_truncation_level`` :raw-html:`<a id="lambdarank_truncation_level" title="Permalink to this parameter" href="#lambdarank_truncation_level">&#x1F517;&#xFE0E;</a>`, default = ``20``, type = int, constraints: ``lambdarank_truncation_level > 0``
 
    -  used only in ``lambdarank`` application
 
-   -  optimizes `NDCG <https://en.wikipedia.org/wiki/Discounted_cumulative_gain#Normalized_DCG>`__ at this position
+   -  used for truncating the max_ndcg, refer to "truncation level" in the Sec.3 of `LambdaMART paper <https://www.microsoft.com/en-us/research/wp-content/uploads/2016/02/MSR-TR-2010-82.pdf>`__ .
 
 -  ``lambdamart_norm`` :raw-html:`<a id="lambdamart_norm" title="Permalink to this parameter" href="#lambdamart_norm">&#x1F517;&#xFE0E;</a>`, default = ``true``, type = bool
 
@@ -883,12 +895,6 @@ Objective Parameters
    -  relevant gain for labels. For example, the gain of label ``2`` is ``3`` in case of default label gains
 
    -  separate by ``,``
-
--  ``objective_seed`` :raw-html:`<a id="objective_seed" title="Permalink to this parameter" href="#objective_seed">&#x1F517;&#xFE0E;</a>`, default = ``5``, type = int
-
-   -  used only in the ``rank_xendcg`` objective
-
-   -  random seed for objectives
 
 Metric Parameters
 -----------------

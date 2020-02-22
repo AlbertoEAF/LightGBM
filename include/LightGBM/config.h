@@ -692,6 +692,9 @@ struct Config {
 
   #pragma region Objective Parameters
 
+  // desc = random seed for objectives, if random process is needed
+  int objective_seed = 5;
+
   // check = >0
   // alias = num_classes
   // desc = used only in ``multi-class`` classification application
@@ -748,10 +751,19 @@ struct Config {
   // desc = set this closer to ``1`` to shift towards a **Poisson** distribution
   double tweedie_variance_power = 1.5;
 
+
+  // check = >0
+  // desc = used only in ranking (``lambdarank`` and ``rank_xendcg``) applications
+  // decs = randomly sample ``pair_sample`` for one data, totally `k * pair_sample` pairs for one query, where ``k`` is the number of data in that query
+  // desc = ``<= 0`` means using all pairs (``k * (k-1)``)
+  // desc = use small ``pair_sample`` could speed up the ranking obectives, but may hurt the accuracy.
+  int pair_sample = 5;
+
+
   // check = >0
   // desc = used only in ``lambdarank`` application
-  // desc = optimizes `NDCG <https://en.wikipedia.org/wiki/Discounted_cumulative_gain#Normalized_DCG>`__ at this position
-  int max_position = 20;
+  // desc = used for truncating the max_ndcg, refer to "truncation level" in the Sec.3 of `LambdaMART paper <https://www.microsoft.com/en-us/research/wp-content/uploads/2016/02/MSR-TR-2010-82.pdf>`__ .
+  int lambdarank_truncation_level = 20;
 
   // desc = used only in ``lambdarank`` application
   // desc = set this to ``true`` to normalize the lambdas for different queries, and improve the performance for unbalanced data
@@ -764,10 +776,6 @@ struct Config {
   // desc = relevant gain for labels. For example, the gain of label ``2`` is ``3`` in case of default label gains
   // desc = separate by ``,``
   std::vector<double> label_gain;
-
-  // desc = used only in the ``rank_xendcg`` objective
-  // desc = random seed for objectives
-  int objective_seed = 5;
 
   #pragma endregion
 

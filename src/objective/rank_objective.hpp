@@ -90,8 +90,8 @@ class LambdarankNDCG : public RankingObjective {
     // initialize DCG calculator
     DCGCalculator::DefaultLabelGain(&label_gain_);
     DCGCalculator::Init(label_gain_);
-    // will optimize NDCG@optimize_pos_at_
-    optimize_pos_at_ = config.max_position;
+    // will optimize NDCG@truncation_level_
+    truncation_level_ = config.lambdarank_truncation_level;
     sigmoid_table_.clear();
     inverse_max_dcgs_.clear();
     if (sigmoid_ <= 0.0) {
@@ -110,7 +110,7 @@ class LambdarankNDCG : public RankingObjective {
     inverse_max_dcgs_.resize(num_queries_);
 #pragma omp parallel for schedule(static)
     for (data_size_t i = 0; i < num_queries_; ++i) {
-      inverse_max_dcgs_[i] = DCGCalculator::CalMaxDCGAtK(optimize_pos_at_,
+      inverse_max_dcgs_[i] = DCGCalculator::CalMaxDCGAtK(truncation_level_,
         label_ + query_boundaries_[i],
         query_boundaries_[i + 1] - query_boundaries_[i]);
 
@@ -162,8 +162,7 @@ class LambdarankNDCG : public RankingObjective {
       const double high_score = score[high];
       if (high_score == kMinScore) { continue; }
       const double high_label_gain = label_gain_[high_label];
-      const double high_discount =
-          DCGCalculator::GetDiscount(std::min(i, optimize_pos_at_));
+      const double high_discount = DCGCalculator::GetDiscount(i);
       double high_sum_lambda = 0.0;
       double high_sum_hessian = 0.0;
       for (data_size_t j = 0; j < cnt; ++j) {
@@ -179,8 +178,7 @@ class LambdarankNDCG : public RankingObjective {
         const double delta_score = high_score - low_score;
 
         const double low_label_gain = label_gain_[low_label];
-        const double low_discount =
-            DCGCalculator::GetDiscount(std::min(optimize_pos_at_, j));
+        const double low_discount = DCGCalculator::GetDiscount(j);
         // get dcg gap
         const double dcg_gap = high_label_gain - low_label_gain;
         // get discount of this pair
@@ -265,8 +263,8 @@ class LambdarankNDCG : public RankingObjective {
   double sigmoid_;
   /*! \brief Normalize the lambdas or not */
   bool norm_;
-  /*! \brief Optimized NDCG@ */
-  int optimize_pos_at_;
+  /*! \brief truncation position for max ndcg */
+  int truncation_level_;
   /*! \brief Cache result for sigmoid transform to speed up */
   std::vector<double> sigmoid_table_;
   /*! \brief Number of bins in simoid table */
