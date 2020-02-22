@@ -74,55 +74,15 @@ class RankingObjective : public ObjectiveFunction {
     for (data_size_t i = 0; i < num_queries_; ++i) {
       const data_size_t start = query_boundaries_[i];
       const data_size_t cnt = query_boundaries_[i + 1] - query_boundaries_[i];
-      auto is_sampled = Sample(start, cnt, &sampled_pair);
-      if (!is_sampled) {
-        GetGradientsForOneQuery(i, start, cnt, label_ + start, score + start,
-                                gradients + start, hessians + start);
-      } else {
-        GetGradientsForOneQuery(i, start, cnt, sampled_pair, label_ + start,
-                                score + start, gradients + start,
-                                hessians + start);
-      }
+      GetGradientsForOneQuery(i, start, cnt, label_ + start, score + start,
+                              gradients + start, hessians + start);
     }
-  }
-
-  bool Sample(data_size_t offset, data_size_t cnt,
-              std::vector<std::vector<int16_t>>* out) const {
-    Common::FunctionTimer fun_timer("RankingObjective::sample",
-                                    global_timer);
-    if (sample_cnt_ <= 0 || cnt <= sample_cnt_) {
-      return false;
-    }
-    auto& ref_out = *out;
-    ref_out.resize(cnt);
-    for (data_size_t i = 0; i < cnt; ++i) {
-      ref_out[i].clear();
-      auto start = sample_candidates_boundaries_[offset + i];
-      auto end = sample_candidates_boundaries_[offset + i + 1];
-      if (end - start <= sample_cnt_) {
-        for (data_size_t j = start; j < end; ++j) {
-          ref_out[i].push_back(sample_candidates_[j]);
-        }
-      } else {
-        auto sample = rand_.Sample(end - start, sample_cnt_);
-        for (auto j : sample) {
-          ref_out[i].push_back(sample_candidates_[start + j]);
-        }
-      }
-    }
-    return true;
   }
 
   virtual void GetGradientsForOneQuery(data_size_t query_id, data_size_t offset,
                                        data_size_t cnt, const label_t* label,
                                        const double* score, score_t* lambdas,
                                        score_t* hessians) const = 0;
-
-  virtual void GetGradientsForOneQuery(
-      data_size_t query_id, data_size_t offset, data_size_t cnt,
-      const std::vector<std::vector<int16_t>>& sample_pair,
-      const label_t* label, const double* score, score_t* lambdas,
-      score_t* hessians) const = 0;
 
   virtual const char* GetName() const override = 0;
 
@@ -197,7 +157,6 @@ class LambdarankNDCG : public RankingObjective {
   template <bool sample>
   inline void GetGradientsForOneQueryInner(
       data_size_t query_id, data_size_t offset, data_size_t cnt,
-      const std::vector<std::vector<int16_t>>& sample_pair,
       const label_t* label, const double* score, score_t* lambdas,
       score_t* hessians) const {
     Common::FunctionTimer fun_timer("LambdarankNDCG::GetGradientsForOneQueryInner", global_timer);
@@ -209,16 +168,18 @@ class LambdarankNDCG : public RankingObjective {
       hessians[i] = 0.0f;
     }
     // get sorted indices for scores
-    std::vector<data_size_t> sorted_idx;
+    std::vector<data_size_t> sorted_idx(cnt, 0);
     for (data_size_t i = 0; i < cnt; ++i) {
-      sorted_idx.emplace_back(i);
+      sorted_idx[i] = i;
     }
     std::stable_sort(
         sorted_idx.begin(), sorted_idx.end(),
         [score](data_size_t a, data_size_t b) { return score[a] > score[b]; });
     std::vector<int16_t> sorted_mapper;
+    std::vector<int16_t> samples;
     if (sample) {
       sorted_mapper.resize(cnt, 0);
+      samples.resize(cnt, 0);
       for (int i = 0; i < cnt; ++i) {
         sorted_mapper[sorted_idx[i]] = i;
       }
@@ -244,21 +205,30 @@ class LambdarankNDCG : public RankingObjective {
       double high_sum_lambda = 0.0;
       double high_sum_hessian = 0.0;
       double factor = 1.0;
-      if (sample) {
-        // recovery factor for sampled pair
-        factor = static_cast<double>(
-                     sample_candidates_boundaries_[offset + high + 1] -
-                     sample_candidates_boundaries_[offset + high]) /
-                 sample_pair[high].size();
-      }
       auto loop_cnt = cnt;
       if (sample) {
-        loop_cnt = static_cast<data_size_t>(sample_pair[high].size());
+        auto start = sample_candidates_boundaries_[offset + high];
+        auto end = sample_candidates_boundaries_[offset + high + 1];
+        loop_cnt = end - start;
+        if (end - start <= sample_cnt_) {
+          loop_cnt = end - start;
+          for (data_size_t j = 0; j < loop_cnt; ++j) {
+            samples[j] = sample_candidates_[start + j];
+          }
+        } else {
+          auto sample = rand_.Sample(loop_cnt, sample_cnt_);
+          for (data_size_t j = 0; j < sample_cnt_; ++j) {
+            samples[j] = sample_candidates_[start + sample[j]];
+          }
+          loop_cnt = sample_cnt_;
+        }
+        // recovery factor for sampled pair
+        factor = static_cast<double>(end - start) / loop_cnt;
       }
       for (data_size_t j = 0; j < loop_cnt; ++j) {
         auto cur_j = j;
         if (sample) {
-          cur_j = sorted_mapper[sample_pair[high][j]];
+          cur_j = sorted_mapper[samples[j]];
         }
         if (!sample) {
           // skip same data
@@ -329,18 +299,109 @@ class LambdarankNDCG : public RankingObjective {
                                       data_size_t cnt, const label_t* label,
                                       const double* score, score_t* lambdas,
                                       score_t* hessians) const override {
-    GetGradientsForOneQueryInner<false>(query_id, offset, cnt,
-                                        std::vector<std::vector<int16_t>>(),
-                                        label, score, lambdas, hessians);
-  }
+    if (sample_cnt_ <= 0 || cnt < sample_cnt_) {
+      GetGradientsForOneQueryInner<false>(query_id, offset, cnt, label, score,
+                                          lambdas, hessians);
+    } else {
+      GetGradientsForOneQueryInner<true>(query_id, offset, cnt, label, score,
+                                         lambdas, hessians);
+    }
+    //Common::FunctionTimer fun_timer(
+    //    "LambdarankNDCG::GetGradientsForOneQuery", global_timer);
+    //// get max DCG on current query
+    //const double inverse_max_dcg = inverse_max_dcgs_[query_id];
+    //// initialize with zero
+    //for (data_size_t i = 0; i < cnt; ++i) {
+    //  lambdas[i] = 0.0f;
+    //  hessians[i] = 0.0f;
+    //}
+    //// get sorted indices for scores
+    //std::vector<data_size_t> sorted_idx;
+    //for (data_size_t i = 0; i < cnt; ++i) {
+    //  sorted_idx.emplace_back(i);
+    //}
+    //std::stable_sort(
+    //    sorted_idx.begin(), sorted_idx.end(),
+    //    [score](data_size_t a, data_size_t b) { return score[a] > score[b]; });
+    //std::vector<int16_t> sorted_mapper;
+    //// get best and worst score
+    //const double best_score = score[sorted_idx[0]];
+    //data_size_t worst_idx = cnt - 1;
+    //if (worst_idx > 0 && score[sorted_idx[worst_idx]] == kMinScore) {
+    //  worst_idx -= 1;
+    //}
+    //const double worst_score = score[sorted_idx[worst_idx]];
+    //double sum_lambdas = 0.0;
+    //// start accmulate lambdas by pairs
+    //for (data_size_t i = 0; i < cnt; ++i) {
+    //  const data_size_t high = sorted_idx[i];
+    //  const int high_label = static_cast<int>(label[high]);
+    //  const double high_score = score[high];
+    //  if (high_score == kMinScore) {
+    //    continue;
+    //  }
+    //  const double high_label_gain = label_gain_[high_label];
+    //  const double high_discount = DCGCalculator::GetDiscount(i);
+    //  double high_sum_lambda = 0.0;
+    //  double high_sum_hessian = 0.0;
+    //  for (data_size_t j = 0; j < cnt; ++j) {
+    //    // skip same data
+    //    if (i == j) {
+    //      continue;
+    //    }
+    //    const data_size_t low = sorted_idx[j];
+    //    const int low_label = static_cast<int>(label[low]);
+    //    const double low_score = score[low];
+    //    // only consider pair with different label
+    //    if (high_label <= low_label || low_score == kMinScore) {
+    //      continue;
+    //    }
 
-  void GetGradientsForOneQuery(
-      data_size_t query_id, data_size_t offset, data_size_t cnt,
-      const std::vector<std::vector<int16_t>>& sample_pair,
-      const label_t* label, const double* score, score_t* lambdas,
-      score_t* hessians) const override {
-    GetGradientsForOneQueryInner<true>(query_id, offset, cnt, sample_pair,
-                                       label, score, lambdas, hessians);
+    //    const double delta_score = high_score - low_score;
+
+    //    const double low_label_gain = label_gain_[low_label];
+    //    const double low_discount = DCGCalculator::GetDiscount(j);
+    //    // get dcg gap
+    //    const double dcg_gap = high_label_gain - low_label_gain;
+    //    // get discount of this pair
+    //    const double paired_discount = fabs(high_discount - low_discount);
+    //    // get delta NDCG
+    //    double delta_pair_NDCG = dcg_gap * paired_discount * inverse_max_dcg;
+    //    // regular the delta_pair_NDCG by score distance
+    //    if (norm_ && high_label != low_label && best_score != worst_score) {
+    //      delta_pair_NDCG /= (0.01f + fabs(delta_score));
+    //    }
+    //    // calculate lambda for this pair
+    //    double p_lambda = GetSigmoid(delta_score);
+    //    double p_hessian = p_lambda * (1.0f - p_lambda);
+    //    // update
+    //    p_lambda *= -sigmoid_ * delta_pair_NDCG;
+    //    p_hessian *= sigmoid_ * sigmoid_ * delta_pair_NDCG;
+    //    high_sum_lambda += p_lambda;
+    //    high_sum_hessian += p_hessian;
+    //    lambdas[low] -= static_cast<score_t>(p_lambda);
+    //    hessians[low] += static_cast<score_t>(p_hessian);
+    //    // lambda is negative, so use minus to accumulate
+    //    sum_lambdas -= 2 * p_lambda;
+    //  }
+    //  // update
+    //  lambdas[high] += static_cast<score_t>(high_sum_lambda);
+    //  hessians[high] += static_cast<score_t>(high_sum_hessian);
+    //}
+    //if (norm_ && sum_lambdas > 0) {
+    //  double norm_factor = std::log2(1 + sum_lambdas) / sum_lambdas;
+    //  for (data_size_t i = 0; i < cnt; ++i) {
+    //    lambdas[i] = static_cast<score_t>(lambdas[i] * norm_factor);
+    //    hessians[i] = static_cast<score_t>(hessians[i] * norm_factor);
+    //  }
+    //}
+    //// if need weights
+    //if (weights_ != nullptr) {
+    //  for (data_size_t i = 0; i < cnt; ++i) {
+    //    lambdas[i] = static_cast<score_t>(lambdas[i] * weights_[offset + i]);
+    //    hessians[i] = static_cast<score_t>(hessians[i] * weights_[offset + i]);
+    //  }
+    //}
   }
 
   inline double GetSigmoid(double score) const {
@@ -409,12 +470,10 @@ class RankXENDCG : public RankingObjective {
 
   ~RankXENDCG() {}
 
-  template <bool sample>
-  inline void GetGradientsForOneQueryInner(
-      data_size_t, data_size_t offset, data_size_t cnt,
-      const std::vector<std::vector<int16_t>>& sample_pair,
-      const label_t* label, const double* score, score_t* lambdas,
-      score_t* hessians) const {
+  inline void GetGradientsForOneQuery(data_size_t, data_size_t offset,
+                                      data_size_t cnt, const label_t* label,
+                                      const double* score, score_t* lambdas,
+                                      score_t* hessians) const override {
     // Turn scores into a probability distribution using Softmax.
     std::vector<double> rho(cnt);
     Common::Softmax(score, rho.data(), cnt);
@@ -470,24 +529,6 @@ class RankXENDCG : public RankingObjective {
         hessians[i] = static_cast<score_t>(hessians[i] * weights_[offset + i]);
       }
     }
-  }
-
-  inline void GetGradientsForOneQuery(data_size_t query_id, data_size_t offset,
-                                      data_size_t cnt, const label_t* label,
-                                      const double* score, score_t* lambdas,
-                                      score_t* hessians) const override {
-    GetGradientsForOneQueryInner<false>(query_id, offset, cnt,
-                                        std::vector<std::vector<int16_t>>(),
-                                        label, score, lambdas, hessians);
-  }
-
-  void GetGradientsForOneQuery(
-      data_size_t query_id, data_size_t offset, data_size_t cnt,
-      const std::vector<std::vector<int16_t>>& sample_pair,
-      const label_t* label, const double* score, score_t* lambdas,
-      score_t* hessians) const override {
-    GetGradientsForOneQueryInner<true>(query_id, offset, cnt, sample_pair,
-                                       label, score, lambdas, hessians);
   }
 
   double phi(const label_t l, double g) const {
