@@ -148,12 +148,11 @@ class LambdarankNDCG : public RankingObjective {
     }
   }
 
-  template <bool IS_SAMPLE>
-  inline void GetGradientsForOneQueryInner(
-      data_size_t query_id, data_size_t offset, data_size_t cnt,
-      const label_t* label, const double* score, score_t* lambdas,
-      score_t* hessians) const {
-    Common::FunctionTimer fun_timer("LambdarankNDCG::GetGradientsForOneQueryInner", global_timer);
+
+  inline void GetGradientsForOneQuery(data_size_t query_id, data_size_t offset,
+                                      data_size_t cnt, const label_t* label,
+                                      const double* score, score_t* lambdas,
+                                      score_t* hessians) const override {
     // get max DCG on current query
     const double inverse_max_dcg = inverse_max_dcgs_[query_id];
     // initialize with zero
@@ -162,14 +161,13 @@ class LambdarankNDCG : public RankingObjective {
       hessians[i] = 0.0f;
     }
     // get sorted indices for scores
-    std::vector<data_size_t> sorted_idx(cnt, 0);
+    std::vector<data_size_t> sorted_idx(cnt);
     for (data_size_t i = 0; i < cnt; ++i) {
       sorted_idx[i] = i;
     }
     std::stable_sort(
         sorted_idx.begin(), sorted_idx.end(),
         [score](data_size_t a, data_size_t b) { return score[a] > score[b]; });
-    std::vector<int16_t> sorted_mapper;
     // get best and worst score
     const double best_score = score[sorted_idx[0]];
     data_size_t worst_idx = cnt - 1;
@@ -190,22 +188,8 @@ class LambdarankNDCG : public RankingObjective {
       const double high_discount = DCGCalculator::GetDiscount(i);
       double high_sum_lambda = 0.0;
       double high_sum_hessian = 0.0;
-      double factor = 1.0;
-      double prob = 1.0;
-      bool use_sample = IS_SAMPLE;
-      int rest_cnt = sample_cnt_;
-      int rest_total = cnt;
-      if (IS_SAMPLE) {
-        int valid_cnt = valid_pair_cnt_[offset + high];
-        if (valid_cnt <= sample_cnt_) {
-          use_sample = false;
-        } else {
-          factor = static_cast<double>(valid_cnt) / sample_cnt_;
-          rest_total = valid_cnt;
-          prob = 1.0 / factor;
-        }
-      }
       for (data_size_t j = 0; j < cnt; ++j) {
+        // skip same data
         if (i == j) {
           continue;
         }
@@ -216,21 +200,7 @@ class LambdarankNDCG : public RankingObjective {
         if (high_label <= low_label || low_score == kMinScore) {
           continue;
         }
-        if (IS_SAMPLE) {
-          if (use_sample) {
-            if (rest_cnt <= 0) {
-              break;
-            }
-            bool sampled = rand_.NextFloat() < prob;
-            --rest_total;
-            if (!sampled) {
-              prob = static_cast<double>(rest_cnt) / rest_total;
-              continue;
-            }
-            --rest_cnt;
-            prob = static_cast<double>(rest_cnt) / rest_total;
-          }
-        }
+
         const double delta_score = high_score - low_score;
 
         const double low_label_gain = label_gain_[low_label];
@@ -242,7 +212,7 @@ class LambdarankNDCG : public RankingObjective {
         // get delta NDCG
         double delta_pair_NDCG = dcg_gap * paired_discount * inverse_max_dcg;
         // regular the delta_pair_NDCG by score distance
-        if (norm_ && high_label != low_label && best_score != worst_score) {
+        if (norm_ && best_score != worst_score) {
           delta_pair_NDCG /= (0.01f + fabs(delta_score));
         }
         // calculate lambda for this pair
@@ -251,10 +221,6 @@ class LambdarankNDCG : public RankingObjective {
         // update
         p_lambda *= -sigmoid_ * delta_pair_NDCG;
         p_hessian *= sigmoid_ * sigmoid_ * delta_pair_NDCG;
-        if (IS_SAMPLE) {
-          p_lambda *= factor;
-          p_hessian *= factor;
-        }
         high_sum_lambda += p_lambda;
         high_sum_hessian += p_hessian;
         lambdas[low] -= static_cast<score_t>(p_lambda);
@@ -279,19 +245,6 @@ class LambdarankNDCG : public RankingObjective {
         lambdas[i] = static_cast<score_t>(lambdas[i] * weights_[offset + i]);
         hessians[i] = static_cast<score_t>(hessians[i] * weights_[offset + i]);
       }
-    }
-  }
-
-  inline void GetGradientsForOneQuery(data_size_t query_id, data_size_t offset,
-                                      data_size_t cnt, const label_t* label,
-                                      const double* score, score_t* lambdas,
-                                      score_t* hessians) const override {
-    if (sample_cnt_ <= 0 || cnt < sample_cnt_) {
-      GetGradientsForOneQueryInner<false>(query_id, offset, cnt, label, score,
-                                          lambdas, hessians);
-    } else {
-      GetGradientsForOneQueryInner<true>(query_id, offset, cnt, label, score,
-                                         lambdas, hessians);
     }
   }
 
