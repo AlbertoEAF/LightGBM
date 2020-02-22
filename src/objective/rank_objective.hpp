@@ -162,7 +162,8 @@ class LambdarankNDCG : public RankingObjective {
       const double high_score = score[high];
       if (high_score == kMinScore) { continue; }
       const double high_label_gain = label_gain_[high_label];
-      const double high_discount = DCGCalculator::GetDiscount(i);
+      const double high_discount =
+          DCGCalculator::GetDiscount(std::min(i, optimize_pos_at_));
       double high_sum_lambda = 0.0;
       double high_sum_hessian = 0.0;
       for (data_size_t j = 0; j < cnt; ++j) {
@@ -178,7 +179,8 @@ class LambdarankNDCG : public RankingObjective {
         const double delta_score = high_score - low_score;
 
         const double low_label_gain = label_gain_[low_label];
-        const double low_discount = DCGCalculator::GetDiscount(j);
+        const double low_discount =
+            DCGCalculator::GetDiscount(std::min(optimize_pos_at_, j));
         // get dcg gap
         const double dcg_gap = high_label_gain - low_label_gain;
         // get discount of this pair
