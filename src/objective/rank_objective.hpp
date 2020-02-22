@@ -129,6 +129,7 @@ class LambdarankNDCG : public RankingObjective {
     // construct sigmoid table to speed up sigmoid transform
     ConstructSigmoidTable();
     if (sample_cnt_ > 0) {
+      valid_pair_cnt_.resize(num_data_);
       data_size_t k = 0;
       for (int q = 0; q < num_queries_; ++q) {
         auto cur_label = label_ + query_boundaries_[q];
