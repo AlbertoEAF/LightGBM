@@ -1047,7 +1047,14 @@ class AlignmentAllocator {
 
 class Timer {
  public:
-  Timer() {}
+  Timer() {
+    int num_threads = 1;
+#pragma omp parallel
+#pragma omp master
+    { num_threads = omp_get_num_threads(); }
+    start_time_.resize(num_threads);
+    stats_.resize(num_threads);
+  }
 
   ~Timer() { Print(); }
 
@@ -1055,17 +1062,11 @@ class Timer {
   void Start(const std::string& name) {
     auto cur_time = std::chrono::steady_clock::now();
     auto tid = omp_get_thread_num();
-    if (start_time_.size() < tid + 1) {
-      start_time_.resize(tid + 1);
-    }
     start_time_[tid][name] = cur_time;
   }
 
   void Stop(const std::string& name) {
     auto tid = omp_get_thread_num();
-    if (stats_.size() < tid + 1) {
-      stats_.resize(tid + 1);
-    }
     if (stats_[tid].find(name) == stats_[tid].end()) {
       stats_[tid][name] = std::chrono::duration<double, std::milli>(0);
     }
