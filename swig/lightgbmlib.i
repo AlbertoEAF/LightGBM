@@ -301,3 +301,5 @@ TYPE *NAME##_handle();
 
 /* Allow retrieving handle to void** */
 %pointer_handle(void*, voidpp)
+
+%include "char_array_helpers.i"
