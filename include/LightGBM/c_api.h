@@ -882,6 +882,29 @@ LIGHTGBM_C_EXPORT int LGBM_BoosterPredictForMatSingleRow(BoosterHandle handle,
                                                          int64_t* out_len,
                                                          double* out_result);
 
+LIGHTGBM_C_EXPORT int LGBM_BoosterPredictForMatSingleRowFastInit(BoosterHandle handle,
+                                       //const void* data,
+                                       int data_type,
+                                       int32_t ncol,
+                                       int is_row_major,
+                                       int predict_type,
+                                       int num_iteration,
+                                       const char* parameter//,
+                                       //int64_t* out_len,
+                                       //double* out_result
+                                       );
+
+LIGHTGBM_C_EXPORT int LGBM_BoosterPredictForMatSingleRowFast(BoosterHandle handle,
+                                       const void* data,
+                                       int data_type,
+                                       int32_t ncol,
+                                       int is_row_major,
+                                       int predict_type,
+                                       int num_iteration,
+                                       //const char* parameter,
+                                       int64_t* out_len,
+                                       double* out_result);
+
 /*!
  * \brief Make prediction for a new dataset presented in a form of array of pointers to rows.
  * \note

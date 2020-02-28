@@ -1645,6 +1645,63 @@ int LGBM_BoosterPredictForMatSingleRow(BoosterHandle handle,
   API_END();
 }
 
+/*
+struct SingleRowPredictCfg {
+  Config config;
+  Booster* ref_booster;
+  int is_row_major;
+  int predict_type;
+  int num_iteration;
+  std::function<std::vector<std::pair<int, double>>(int row_idx)> get_row_fun;
+}
+*/
+
+
+static Config _PredictForMatSingleRowFastConfig_;
+static Booster* _PredictForMatSingleRowFastBoosterPtr_;
+
+int LGBM_BoosterPredictForMatSingleRowFastInit(BoosterHandle handle,
+                                       //const void* data,
+                                       int data_type,
+                                       int32_t ncol,
+                                       int is_row_major,
+                                       int predict_type,
+                                       int num_iteration,
+                                       const char* parameter//,
+                                       //int64_t* out_len,
+                                       //double* out_result
+                                       ) {
+  API_BEGIN();
+  auto param = Config::Str2Map(parameter);
+  
+  _PredictForMatSingleRowFastConfig_.Set(param);
+  if (_PredictForMatSingleRowFastConfig_.num_threads > 0) {
+    omp_set_num_threads(_PredictForMatSingleRowFastConfig_.num_threads);
+  }
+  _PredictForMatSingleRowFastBoosterPtr_ = reinterpret_cast<Booster*>(handle);
+  //auto get_row_fun = RowPairFunctionFromDenseMatric(data, 1, ncol, data_type, is_row_major);
+  //ref_booster->PredictSingleRow(num_iteration, predict_type, ncol, get_row_fun, config, out_result, out_len);
+  API_END();
+}
+
+int LGBM_BoosterPredictForMatSingleRowFast(BoosterHandle handle,
+                                       const void* data,
+                                       int data_type,
+                                       int32_t ncol,
+                                       int is_row_major,
+                                       int predict_type,
+                                       int num_iteration,
+                                       //const char* parameter,
+                                       int64_t* out_len,
+                                       double* out_result) {
+  API_BEGIN();
+
+  Booster* ref_booster = reinterpret_cast<Booster*>(handle);
+  auto get_row_fun = RowPairFunctionFromDenseMatric(data, 1, ncol, data_type, is_row_major);
+  ref_booster->PredictSingleRow(num_iteration, predict_type, ncol, get_row_fun, _PredictForMatSingleRowFastConfig_, out_result, out_len);
+  API_END();
+}
+
 
 int LGBM_BoosterPredictForMats(BoosterHandle handle,
                                const void** data,
