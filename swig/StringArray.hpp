@@ -1,43 +1,7 @@
-/**
- * This SWIG interface extension provides support to
- * extract feature names in java.
- * Although extremly verbose, all constructs in this interface
- * except "StringArray" and "StringArrayHandle" start by "custom_"
- * to make it blatantly obvious that this is not standard LightGBM API.
- *
- * - You can use the raw C-style
- *    custom_<new/delete>_<string/string_array>(...) methods
- *   to create/destroy new strings and arrays of strings of fixed size.
- *
- * - You can also take advantage of the StringArray class which abstracts those.
- *
- * - This class is used for example in custom_new_LGBM_BoosterGetStringArray,
- *   a variant of LGBM_BoosterGetStringArray that automatically allocates memory
- *   to hold strings of a certain max size for you and returns you a handle pointing
- *   to StringArray.
- *
- *   With that, you can then access any of its strings through:
- *    custom_get_array_string(StringArrayHandle, feature_idx)
- *   and you are responsible for deleting its memory by calling:
- *    custom_StringArrayFree(StringArrayHandle)
- */
+#ifndef __STRING_ARRAY_H__
+#define __STRING_ARRAY_H__
 
-// TODO: Release memory of StringArray if partial allocation is done (std::bad_alloc)
-
-// Use SWIG's `various.i` to get a String[] directly in one call:
-%apply char **STRING_ARRAY {char **StringArrayHandle_get_strings};
-
-#include <iostream>
-
-%inline %{
-
-
-    class StringArray;
-    typedef void* StringArrayHandle;
-
-
-
-
+#include <new>
 
 /**
  * Container that manages an array of fixed-length strings.
@@ -118,7 +82,7 @@ class StringArray
     {
         return _num_elements;
     }
-
+    
   private:
 
     /**
@@ -179,83 +143,4 @@ class StringArray
     const int _string_size;
 };
 
-
-
-
-
-
-
-
-    /**
-     * Return the pointer to the array of strings.
-     * Wrapped in Java into String[] automatically.
-     */
-    char **StringArrayHandle_get_strings(StringArrayHandle handle)
-    {        
-        return reinterpret_cast<StringArray *>(handle)->get_array_ptr();
-    }
-
-    /**
-     * For the end user to extract a specific string from the StringArray object.
-     */
-    char *StringArrayHandle_get_string(StringArrayHandle handle, int feature_idx)
-    {
-        return reinterpret_cast<StringArray *>(handle)->getitem(feature_idx);
-    }
-
-    /**
-     * Free the StringArray object.
-     */
-    void StringArrayHandle_free(StringArrayHandle handle)
-    {
-        delete reinterpret_cast<StringArray *>(handle);
-    }
-
-    int StringArrayHandle_get_num_elements(StringArrayHandle handle) 
-    {
-        return reinterpret_cast<StringArray *>(handle)->get_num_elements();
-    }
-
-    /**
-     * Allocates a new StringArray. You must free it yourself if it succeeds.
-     * @see StringArray_delete().
-     * If the underlying LGBM calls fail, memory is freed automatically.
-     */
-    int LGBM_BoosterGetFeatureNamesSWIG(BoosterHandle handle,
-                                        int num_features,
-                                        int max_feature_name_size,
-                                        StringArrayHandle * out_StringArrayHandle_ptr)
-    {
-        // 0) Initialize variables:
-        StringArray * strings = nullptr;
-        *out_StringArrayHandle_ptr = nullptr;
-        int retcode_api;
-/*
-        // 1) To preallocate memory extract number of features first:
-        int num_features;
-        int retcode_api = LGBM_BoosterGetNumFeature(handle, &num_features);
-        if (retcode_api == -1) {
-            return -1;
-        }*/
-std::cout << "FLAG=" << num_features << "\n";
-        // 2) Allocate an array of strings:
-        strings = new StringArray(num_features, max_feature_name_size);
-        
-std::cout << "pre-extract\n";
-        // 3) Extract feature names:
-        int _dummy_out_num_features; // already know how many there are (to allocate memory).
-        retcode_api = LGBM_BoosterGetFeatureNames(handle, &_dummy_out_num_features,
-                                                  strings->get_array_ptr());
-
-        // If any failure arises, release memory:
-        if (retcode_api == -1)
-        {
-            std::cout << LGBM_GetLastError();
-            StringArrayHandle_free(strings);            
-        }
-
-        *out_StringArrayHandle_ptr = strings;
-        return retcode_api;
-    }
-%}
-
+#endif // __STRING_ARRAY_H__
