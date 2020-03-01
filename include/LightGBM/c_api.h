@@ -883,7 +883,7 @@ LIGHTGBM_C_EXPORT int LGBM_BoosterPredictForMatSingleRow(BoosterHandle handle,
                                                          double* out_result);
 
 LIGHTGBM_C_EXPORT int LGBM_BoosterPredictForMatSingleRowFastInit(BoosterHandle handle,
-                                       //const void* data,
+                                       const void* data,
                                        int data_type,
                                        int32_t ncol,
                                        int is_row_major,
