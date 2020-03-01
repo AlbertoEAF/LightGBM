@@ -1,28 +1,18 @@
 /**
  * This SWIG interface extension provides support to
- * extract feature names in java.
- * Although extremly verbose, all constructs in this interface
- * except "StringArray" and "StringArrayHandle" start by "custom_"
- * to make it blatantly obvious that this is not standard LightGBM API.
- *
- * - You can use the raw C-style
- *    custom_<new/delete>_<string/string_array>(...) methods
- *   to create/destroy new strings and arrays of strings of fixed size.
- *
- * - You can also take advantage of the StringArray class which abstracts those.
- *
- * - This class is used for example in custom_new_LGBM_BoosterGetStringArray,
- *   a variant of LGBM_BoosterGetStringArray that automatically allocates memory
- *   to hold strings of a certain max size for you and returns you a handle pointing
- *   to StringArray.
- *
- *   With that, you can then access any of its strings through:
- *    custom_get_array_string(StringArrayHandle, feature_idx)
- *   and you are responsible for deleting its memory by calling:
- *    custom_StringArrayFree(StringArrayHandle)
+ * allocate, return and manage arrays of strings through
+ * the class StringArray.
+ * 
+ * This is then used to generate wrappers that return newly-allocated
+ * arrays of strings, so the user can them access them easily as a String[]
+ * on the Java side by a single call to StringArray::data(), and even manipulate 
+ * them.
+ * 
+ * It also implements working wrappers to:
+ *  - 
+ *  - LGBM_BoosterGetFeatureNames (original hidden and replaced with a ...SWIG version).
+ * 
  */
-
-// TODO: Release memory of StringArray if partial allocation is done (std::bad_alloc)
 
 // Use SWIG's `various.i` to get a String[] directly in one call:
 %apply char **STRING_ARRAY {char **StringArrayHandle_get_strings};
@@ -38,7 +28,7 @@
 
 
 
-
+// TODO: @reviewer - I'd like to see the StringArray class moved to another .i file or to the src + include folders.
 /**
  * Container that manages an array of fixed-length strings.
  *
@@ -47,6 +37,7 @@
  *   [char*, char*, char*, ..., NULL]
  * This implies that the length of this array is bigger
  * by 1 element than the number of char* it stores.
+ * I.e., _num_elements == _array.size()-1
  *
  * The class also takes care of allocation of the underlying
  * char* memory.
@@ -54,37 +45,41 @@
 class StringArray
 {
   public:
-    StringArray(int num_elements, int string_size) 
-      : _num_elements(num_elements),
-        _string_size(string_size)
+    StringArray(size_t num_elements, size_t string_size) 
+      : _string_size(string_size),
+        _array(num_elements + 1, nullptr)
     {        
-        _string_array_ptr = new_string_array(num_elements, string_size);
+        _allocate_strings(num_elements, string_size);
     }
 
     ~StringArray()
     {
-        delete_string_array(_string_array_ptr, _num_elements);
+        _release_strings();
     }
 
     /**
      * Returns the pointer to the raw array.
      * Notice its size is greater than the number of stored strings by 1.
+     * 
+     * @return char** pointer to raw data (null-terminated).
      */
-    char **get_array_ptr() noexcept
+    char **data() noexcept
     {
-        return _string_array_ptr;
+        return _array.data();
     }
 
     /**
-     * Return char* to an array of size _string_size+1.
+     * Return char* from the array of size _string_size+1.
+     * Notice the last element in _array is already
+     * considered out of bounds.
      * 
-     * @param i Index of the element to retrieve.
+     * @param index Index of the element to retrieve.
      * @return pointer or nullptr if index is out of bounds.
      */
-    char *getitem(int index) noexcept
+    char *getitem(size_t index) noexcept
     {
-        if (index >= 0 && index < _num_elements)
-            return _string_array_ptr[index];
+        if (_in_bounds(index))
+            return _array[index];
         else
             return nullptr;
     }
@@ -102,83 +97,75 @@ class StringArray
      * into the target string (_string_size), it errors out
      * and returns -1.
      */
-    int setitem(int index, std::string content) noexcept 
+    int setitem(size_t index, std::string content) noexcept 
     {
-        if (index >= 0 && index < _num_elements && 
-            static_cast<int>(content.size()) < _string_size) 
+        if (_in_bounds(index) && content.size() < _string_size) 
         {            
-            std::strcpy(_string_array_ptr[index], content.c_str());
+            std::strcpy(_array[index], content.c_str());
             return 0;
         } else {            
             return -1;
         }
     }
 
-    int get_num_elements()
-    {
-        return _num_elements;
+    /**
+     * @return number of stored strings.
+     */
+    size_t get_num_elements() noexcept
+    {        
+        return _array.size() - 1;
     }
 
   private:
 
     /**
+     * Returns true if and only if within bounds.
+     * Notice that it excludes the last element of _array (NULL).
+     * 
+     * @param index index of the element
+     * @return bool true if within bounds
+     */
+    bool _in_bounds(size_t index) noexcept 
+    {        
+        return index < get_num_elements();        
+    }
+
+    /**
      * Allocate an array of fixed-length strings.
      * 
      * Since a NULL-terminated array is required by SWIG's `various.i`,
-     * the size of the array is actually `num_elements + 1`.
+     * the size of the array is actually `num_elements + 1` but only
+     * num_elements are filled.
      * 
      * @param num_elements Number of strings to store in the array.
      * @param string_size The size of each string in the array.
      */
-    char **new_string_array(int num_elements, int string_size) noexcept
-    {
-        // For compatibility with `various.i` store a terminal NULL ptr:
-        char **string_array_ptr = new (std::nothrow) char *[num_elements + 1];
-        if (! string_array_ptr) {
-            return nullptr;
-        }
-
-        std::memset(string_array_ptr, 0, sizeof(char*) * (num_elements+1));
-        
+    void _allocate_strings(int num_elements, int string_size)
+    {  
         for (int i = 0; i < num_elements; ++i)
         {
             // Leave space for \0 terminator:
-            string_array_ptr[i] = new (std::nothrow) char[string_size + 1];
+            _array[i] = new (std::nothrow) char[string_size + 1];
 
             // Check memory allocation:
-            if (! string_array_ptr[i]) {
-                _cleanup_elements(string_array_ptr, num_elements + 1);
-                return nullptr;
+            if (! _array[i]) {
+                _release_strings();
+                throw std::bad_alloc();
             }
-        }
-
-        return string_array_ptr;
-    }
-
-    void _cleanup_elements(char **array_ptr, int size) 
-    {
-        for (int i = 0; i < size; ++i) {
-            delete[] array_ptr[i];
         }
     }
 
     /**
-     * Delete the array of fixed-length strings.
+     * Deletes the allocated strings.
      */
-    void delete_string_array(char **string_array_ptr, const int string_array_size)
+    void _release_strings() noexcept
     {
-        for (int i = 0; i < string_array_size; ++i)
-        {
-            delete[] string_array_ptr[i];
-        }
-        delete[] string_array_ptr;
+        std::for_each(_array.begin(), _array.end(), [](char* c) { delete[] c; });
     }
 
-    char **_string_array_ptr;
-    const int _num_elements;
-    const int _string_size;
+    const size_t _string_size;
+    std::vector<char*> _array;    
 };
-
 
 
 
@@ -192,7 +179,7 @@ class StringArray
      */
     char **StringArrayHandle_get_strings(StringArrayHandle handle)
     {        
-        return reinterpret_cast<StringArray *>(handle)->get_array_ptr();
+        return reinterpret_cast<StringArray *>(handle)->data();
     }
 
     /**
@@ -216,46 +203,81 @@ class StringArray
         return reinterpret_cast<StringArray *>(handle)->get_num_elements();
     }
 
+
+
+    /**
+     * Wraps LGBM_BoosterGetEvalNamesSWIG.
+     * 
+     * @param handle Booster handle
+     * @param eval_counts number of evaluations
+     * @param *strings [out] Pointer to ArrayStringHandle.
+     * 
+     * @return 0 in case of success or -1 in case of error.
+     */
+    int LGBM_BoosterGetEvalNamesSWIG(BoosterHandle handle,
+                                     int eval_counts,
+                                     StringArrayHandle *strings) 
+    {
+        try {
+            // TODO: @reviewer, 128 was the chosen size, any particular reason for this constraint?
+            *strings = new StringArray(eval_counts, 128);
+        } catch (std::bad_alloc &e) {
+            *strings = nullptr;
+            LGBM_SetLastError("Failure to allocate memory."); // TODO: @reviewer is not setting the message.
+            return -1;
+        }
+
+        int api_return = LGBM_BoosterGetEvalNames(handle, &eval_counts, 
+                                                  static_cast<StringArray*>(*strings)->data());
+        if (api_return == -1) {
+            // Call failed, no point in returning memory to free later:
+            StringArrayHandle_free(*strings);
+            *strings = nullptr;
+        }
+
+        return api_return;
+    }
+
+
     /**
      * Allocates a new StringArray. You must free it yourself if it succeeds.
      * @see StringArray_delete().
      * If the underlying LGBM calls fail, memory is freed automatically.
      */
     int LGBM_BoosterGetFeatureNamesSWIG(BoosterHandle handle,
-                                        int num_features,
+                                        //int num_features,
                                         int max_feature_name_size,
-                                        StringArrayHandle * out_StringArrayHandle_ptr)
+                                        StringArrayHandle * strings)
     {
-        // 0) Initialize variables:
-        StringArray * strings = nullptr;
-        *out_StringArrayHandle_ptr = nullptr;
-        int retcode_api;
-/*
+        int api_return;
+
         // 1) To preallocate memory extract number of features first:
         int num_features;
-        int retcode_api = LGBM_BoosterGetNumFeature(handle, &num_features);
-        if (retcode_api == -1) {
+        api_return = LGBM_BoosterGetNumFeature(handle, &num_features);
+        if (api_return == -1)
             return -1;
-        }*/
-std::cout << "FLAG=" << num_features << "\n";
+
         // 2) Allocate an array of strings:
-        strings = new StringArray(num_features, max_feature_name_size);
+        try {
+            // TODO: @reviewer should we also figure out the size of the biggest string and remove parameter max_feature_name_size?
+            *strings = new StringArray(num_features, max_feature_name_size);
+        } catch (std::bad_alloc &e) {
+            *strings = nullptr;
+            LGBM_SetLastError("Failure to allocate memory."); // TODO: @reviewer is not setting the message.
+            return -1;
+        }
         
-std::cout << "pre-extract\n";
         // 3) Extract feature names:
         int _dummy_out_num_features; // already know how many there are (to allocate memory).
-        retcode_api = LGBM_BoosterGetFeatureNames(handle, &_dummy_out_num_features,
-                                                  strings->get_array_ptr());
-
-        // If any failure arises, release memory:
-        if (retcode_api == -1)
+        api_return = LGBM_BoosterGetFeatureNames(handle, &_dummy_out_num_features,
+                                                 static_cast<StringArray*>(*strings)->data());
+        if (api_return == -1)
         {
-            std::cout << LGBM_GetLastError();
-            StringArrayHandle_free(strings);            
+            StringArrayHandle_free(*strings);         
+            *strings = nullptr;   
         }
 
-        *out_StringArrayHandle_ptr = strings;
-        return retcode_api;
+        return api_return;
     }
 %}
 
