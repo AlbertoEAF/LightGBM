@@ -234,6 +234,10 @@ file(GLOB SOURCES
     src/treelearner/*.cpp
 )
 
+# For profiling builds (use -DDEBUG=ON)
+add_executable(lightgbm_profile_single_row_predict profiling/profile_single_row_predict.cpp ${SOURCES} src/c_api.cpp)
+add_executable(lightgbm_profile_single_row_predict_fast profiling/profile_single_row_predict_fast.cpp ${SOURCES} src/c_api.cpp)
+
 add_executable(lightgbm src/main.cpp ${SOURCES})
 add_library(_lightgbm SHARED src/c_api.cpp src/lightgbm_R.cpp ${SOURCES})
 
