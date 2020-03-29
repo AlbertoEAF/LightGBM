@@ -15,6 +15,7 @@ OPTION(USE_R35 "Set to ON if your R version is not earlier than 3.5" OFF)
 OPTION(USE_TIMETAG "Set to ON to output time costs" OFF)
 OPTION(USE_DEBUG "Set to ON for Debug mode" OFF)
 OPTION(BUILD_FOR_R "Set to ON if building lib_lightgbm for use with the R package" OFF)
+OPTION(BUILD_PROFILING_TESTS "Set to ON to compile profiling executables for development and benchmarks." OFF)
 
 if(APPLE)
     OPTION(APPLE_OUTPUT_DYLIB "Output dylib shared library" OFF)
@@ -233,6 +234,12 @@ file(GLOB SOURCES
     src/network/*.cpp
     src/treelearner/*.cpp
 )
+
+if(BUILD_PROFILING_TESTS)
+    # For profiling builds (use -DDEBUG=ON)
+    add_executable(lightgbm_profile_single_row_predict profiling/profile_single_row_predict.cpp ${SOURCES} src/c_api.cpp)
+    add_executable(lightgbm_profile_single_row_predict_fast profiling/profile_single_row_predict_fast.cpp ${SOURCES} src/c_api.cpp)
+endif(BUILD_PROFILING_TESTS)
 
 add_executable(lightgbm src/main.cpp ${SOURCES})
 list(APPEND SOURCES "src/c_api.cpp")
