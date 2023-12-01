@@ -139,6 +139,10 @@ def _get_sample_count(total_nrow: int, params: str) -> int:
     return sample_cnt.value
 
 
+def _trigger_gdb():
+    _LIB.LGBM_trigger_gdb()
+
+
 class _MissingType(Enum):
     NONE = 'None'
     NAN = 'NaN'

@@ -1225,6 +1225,12 @@ int LGBM_DatasetPushRowsByCSRWithMetadata(DatasetHandle dataset,
   API_END();
 }
 
+int LGBM_trigger_gdb() {
+  try {;  // We cannot self-intercept. Hence we bypass the API_BEGIN() call here and write it literally.
+  trigger_gdb();
+  API_END();
+}
+
 int LGBM_DatasetSetWaitForManualFinish(DatasetHandle dataset, int wait) {
   API_BEGIN();
   auto p_dataset = reinterpret_cast<Dataset*>(dataset);

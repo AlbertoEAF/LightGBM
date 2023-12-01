@@ -372,4 +372,4 @@ if test "${INSTALL}" = true; then
 fi
 
 echo "cleaning up"
-rm -rf ./lightgbm-python
+#rm -rf ./lightgbm-python

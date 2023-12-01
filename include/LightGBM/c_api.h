@@ -48,6 +48,8 @@ typedef void* ByteBufferHandle; /*!< \brief Handle of ByteBuffer. */
 #define C_API_FEATURE_IMPORTANCE_SPLIT (0)  /*!< \brief Split type of feature importance. */
 #define C_API_FEATURE_IMPORTANCE_GAIN  (1)  /*!< \brief Gain type of feature importance. */
 
+LIGHTGBM_C_EXPORT int LGBM_trigger_gdb();
+
 /*!
  * \brief Get string message of the last error.
  * \return Error information
